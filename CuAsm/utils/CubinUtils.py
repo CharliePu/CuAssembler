@@ -552,6 +552,69 @@ def fixCubinDesc(fin, fout):
 
     return True
 
+def preserveCubinDesc(fin_orig, fin_modified, fout):
+    """Restore the original Ampere desc bit (bit 37 of q2) on every .text instruction.
+
+    Workflow this fixes:
+        1. CubinFile.loadCubin runs hackCubinDesc(in) which FORCES bit 37 ON for every
+           16-byte instruction in every .text section, so nvdisasm shows `desc[UR4]`
+           explicitly on every memory op.
+        2. CuAsmParser then parses that text and reassembles; the resulting cubin has
+           bit 37 ON everywhere — even for instructions whose original encoding had
+           bit 37 OFF (the common "no descriptor" case for LDG/LDS/STG/STS).
+        3. This function takes (original cubin, reassembled cubin) and produces a new
+           cubin where bit 37 of q2 for each instruction at offset X matches the
+           original cubin's bit 37 at offset X.
+
+    Constraints:
+        - Both cubins MUST have identical .text section offsets + sizes (same layout).
+          For control-code / byte-level edits that don't grow sections, this holds.
+        - Only bit 37 of q2 is touched; all other bytes in the modified cubin are
+          preserved unchanged.
+
+    Returns: number of instructions whose desc bit was cleared.
+    """
+    import struct as _struct
+    from elftools.elf.elffile import ELFFile as _ELFFile
+
+    with open(fin_orig, 'rb') as fo:
+        orig_bytes = fo.read()
+        fo.seek(0)
+        ef_o = _ELFFile(fo)
+        orig_text = {s.name: (s.header.sh_offset, s.header.sh_size)
+                     for s in ef_o.iter_sections() if s.name.startswith('.text.')}
+
+    with open(fin_modified, 'rb') as fm:
+        mod_bytes = bytearray(fm.read())
+        fm.seek(0)
+        ef_m = _ELFFile(fm)
+        mod_text = {s.name: (s.header.sh_offset, s.header.sh_size)
+                    for s in ef_m.iter_sections() if s.name.startswith('.text.')}
+
+    cleared = 0
+    for name, (mo_off, mo_size) in mod_text.items():
+        if name not in orig_text:
+            CuAsmLogger.logWarning(f'preserveCubinDesc: section {name} not in original; skipping')
+            continue
+        or_off, or_size = orig_text[name]
+        if mo_size != or_size:
+            CuAsmLogger.logWarning(f'preserveCubinDesc: section {name} size mismatch '
+                                   f'(orig {or_size} vs modified {mo_size}); skipping')
+            continue
+        for i in range(0, or_size, 16):
+            q2_orig = _struct.unpack('Q', orig_bytes[or_off+i+8 : or_off+i+16])[0]
+            q2_mod  = _struct.unpack('Q', mod_bytes[mo_off+i+8 : mo_off+i+16])[0]
+            orig_desc = (q2_orig >> 37) & 1
+            if not orig_desc and (q2_mod >> 37) & 1:
+                q2_mod &= ~(1 << 37)
+                mod_bytes[mo_off+i+8 : mo_off+i+16] = _struct.pack('Q', q2_mod)
+                cleared += 1
+
+    with open(fout, 'wb') as f:
+        f.write(bytes(mod_bytes))
+    CuAsmLogger.logProcedure(f'preserveCubinDesc: cleared desc bit on {cleared} instructions')
+    return cleared
+
+
 if __name__ == '__main__':
     pass
-    
