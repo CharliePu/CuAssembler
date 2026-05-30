@@ -6,6 +6,7 @@ import shutil
 from CuAsm.CubinFile import CubinFile
 from CuAsm.CuAsmParser import CuAsmParser
 from CuAsm.CuAsmLogger import CuAsmLogger
+from CuAsm.utils.CubinUtils import preserveCubinDesc
 import argparse
 
 desc_msg = '''
@@ -67,31 +68,42 @@ def cubin2cuasm(binname, asmname=None):
     checkOutFileBackup(asmname)
     cf.saveAsCuAsm(asmname)
 
-def cuasm2cubin(asmname, binname=None):
+def cuasm2cubin(asmname, binname=None, preserve_desc_from=None):
     cap = CuAsmParser()
     cap.parse(asmname)
 
     if binname is None:
         fbase, fext = os.path.splitext(asmname)
         binname = fbase + '.cubin'
-    
-    checkOutFileBackup(binname)
-    cap.saveAsCubin(binname)
 
-def doProcess(src:str, dst:str, direction = 'auto'):
+    checkOutFileBackup(binname)
+    if preserve_desc_from:
+        # Reassemble to a temp, then post-process to restore desc bit from the original cubin
+        import tempfile as _tf
+        tmp_bin = _tf.mktemp(suffix='.cubin')
+        cap.saveAsCubin(tmp_bin)
+        preserveCubinDesc(preserve_desc_from, tmp_bin, binname)
+        try: os.remove(tmp_bin)
+        except OSError: pass
+    else:
+        cap.saveAsCubin(binname)
+
+def doProcess(src:str, dst:str, direction = 'auto', preserve_desc_from=None):
     ''' Do process from src to dst.
-    
+
         direction:
             auto     : determined from src file extension (default)
             bin2asm  : cubin -> cuasm
             asm2bin  : cuasm -> cubin
+        preserve_desc_from: path to original cubin; only used in asm2bin direction
+            to restore Ampere descriptor bits that the hack-disasm path forced ON.
     '''
     _, fext = os.path.splitext(src)
-    
+
     if direction == 'bin2asm' or fext in {'.cubin', '.bin'}:
         cubin2cuasm(src, dst)
     elif direction == 'asm2bin' or fext in {'.cuasm', '.asm'}:
-        cuasm2cubin(src, dst)
+        cuasm2cubin(src, dst, preserve_desc_from=preserve_desc_from)
     else:
         print('The first infile should be with ext ".cubin" or ".cuasm", otherwise specify direction by option --bin2asm or --asm2bin!')
         exit(-1)
@@ -109,6 +121,12 @@ if __name__ == "__main__":
     group_direction = parser.add_mutually_exclusive_group()
     group_direction.add_argument("--bin2asm", action="store_true", help='Convert from cubin to cuasm.')
     group_direction.add_argument("--asm2bin", action="store_true", help='Convert from cuasm to cubin.')
+
+    parser.add_argument('--preserve-desc-from', dest='preserve_desc_from', default=None,
+        help='[asm2bin only] Path to the ORIGINAL cubin. After reassembly, restore the Ampere '
+             'desc bit (bit 37 of q2) of each .text instruction from the original. Fixes the '
+             'over-set desc bit that hackCubinDesc forces on during disassembly. Required for '
+             'a bit-faithful round-trip on sm_80/86 cubins that use LDG/STG/LDS/STS without desc.')
 
     args = parser.parse_args()
 
@@ -150,4 +168,4 @@ if __name__ == "__main__":
     else:
         CuAsmLogger.initLogger(log_file=None, stdout_level=stdout_level)
 
-    doProcess(infile, outfile, direction)
+    doProcess(infile, outfile, direction, preserve_desc_from=args.preserve_desc_from)
