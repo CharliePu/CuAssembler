@@ -143,8 +143,14 @@ class CuAsmSymbol(object):
 
             name = strtab[nameidx]
             if name in symdict:
-                raise Exception('Duplicate symbol @%#x with name %s!', p, name)
-            symdict[name] = index, sym
+                # sm_90 cubins may carry several distinct symbols with an empty name
+                # (st_name=0), beyond the index-0 null symbol. Keep them all under a
+                # synthetic unique key so symtab order / indices (referenced by
+                # relocations) are preserved; they are never looked up by name.
+                key = '\x00dup%d' % index
+            else:
+                key = name
+            symdict[key] = index, sym
             index += 1
 
         return symdict
@@ -1390,7 +1396,10 @@ class CuAsmParser(object):
         self.__mSymbolDict[symbol].type = stype
 
     def __dir_size(self, args):
-        self.__assertArgc('.size', args, 2, allowMore=False)
+        # nvdisasm on sm_90 emits a 3-arg form `.size sym, 0, 0` for reserved-shared
+        # alias symbols (e.g. __nv_reservedSMEM_offset_0_alias). Accept >=2 args and
+        # use the first expression as the size; any trailing args are ignored.
+        self.__assertArgc('.size', args, 2, allowMore=True)
         symbol = args[0]
         if symbol not in self.__mSymbolDict:
             self.__mSymbolDict[symbol] = CuAsmSymbol(symbol)
