@@ -202,6 +202,23 @@ class CuInsAssembler():
                 self.m_InsRepos.append((vals, modi, code))
                 self.m_InsRecords.append(ins_info)
                 self.buildMatrix()
+
+                # Verify the freshly-added sample reproduces its own code as an exact
+                # integer. A relocated/placeholder control-flow op (e.g. a BRA whose
+                # encoded offset field is 0 while the displayed target is nonzero) is
+                # inconsistent with the real-branch basis; admitting it makes the whole
+                # solution non-integral and corrupts the assembler. Reject and revert
+                # to the prior consistent basis instead.
+                chkvec = self.buildInsValVec(vals, modi)
+                chkcode = self.m_PSol.dot(chkvec) / self.m_PSolFac
+                if (not chkcode.is_integer) or (chkcode != code):
+                    self.m_InsRepos.pop()
+                    self.m_InsRecords.pop()
+                    self.buildMatrix()
+                    if code not in self.m_ErrRecords:
+                        self.m_ErrRecords[code] = ins_info
+                    return False, 'NewConflict'
+
                 return True, 'NewVals'
 
         # Never be here

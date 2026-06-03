@@ -604,11 +604,25 @@ class CuInsParser():
             if self.m_InsKey.endswith('_II'):
                 if 'ABS' not in self.m_InsOpFull: # CHECK: Other absolute address?
                     addr = self.m_InsVals[-1] - self.m_InsAddr - self.m_Arch.getInstructionLength()
-                    if addr<0:
-                        self.m_InsModifier.append('0_NegAddrOffset')
 
-                    # The value length of same key should be kept the same
-                    self.m_InsVals[-1] = addr
+                    if self.m_Arch.getMajor() >= 9:
+                        # sm_90 (Hopper) splits the relative branch offset into two
+                        # NON-contiguous code fields: offset bits[4:10) -> code[18:24),
+                        # offset bits[10:..) -> code[34:..). A single scalar value can't
+                        # span that gap (the two halves carry different effective
+                        # coefficients), so represent the offset as two scalar values
+                        # (low 10 bits, and arithmetic-shifted high part which also
+                        # carries the sign). The assembler then learns one coefficient
+                        # per contiguous half. offset == (high<<10) | low holds for
+                        # negative offsets too under Python's arithmetic shift.
+                        self.m_InsVals[-1] = addr & 0x3FF
+                        self.m_InsVals.append(addr >> 10)
+                    else:
+                        if addr<0:
+                            self.m_InsModifier.append('0_NegAddrOffset')
+
+                        # The value length of same key should be kept the same
+                        self.m_InsVals[-1] = addr
 
         if self.m_InsOp in self.m_Arch.m_PosDepOpcodes:
             # the modifier of I2I/F2F is position dependent
