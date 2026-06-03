@@ -1126,8 +1126,24 @@ class CuAsmParser(object):
                         else:
                             self.__assert(False, 'Unknown data type for relocation: %s'%fixup.dtype)
 
-                        rel = CuAsmRelocation(fixup.section, fixup.offset, symname, relsymid, reltype=reltype, reladd=None)
-                        self.__mRelList.append(rel)
+                        # CUDA emits data-section symbol relocations as RELA (with an
+                        # explicit addend) whenever the disassembler preserved a
+                        # `.rela<sec>` section for the target. Classify to match, so the
+                        # entry routes to that existing section rather than a nonexistent
+                        # `.rel<sec>` (KeyError in __buildRelocationSections). nvdisasm
+                        # surfaces these for .debug_frame on sm_90.
+                        if ('.rela' + fixup.section.name) in self.__mSectionDict:
+                            addend = 0
+                            if vs[1] == '+':   addend =  vs[2]
+                            elif vs[1] == '-': addend = -vs[2]
+                            rel = CuAsmRelocation(fixup.section, fixup.offset, symname, relsymid, reltype=reltype, reladd=addend)
+                            self.__mRelList.append(rel)
+                            fixup.value = 0  # RELA: addend lives in the entry, section data stays 0
+                            self.__updateSectionForFixup(fixup)
+                            val = None       # handled; skip the REL section write below
+                        else:
+                            rel = CuAsmRelocation(fixup.section, fixup.offset, symname, relsymid, reltype=reltype, reladd=None)
+                            self.__mRelList.append(rel)
 
                     if val is not None: # symbol + label@srel, seems the label value is filled.
                         fixup.value = val 

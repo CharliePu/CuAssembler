@@ -320,6 +320,14 @@ class CubinFile():
         stream.write(asmlines[0] + '\n') # asmline[0] contains .section declaration
         self.__writeSectionHeaderAsm(stream, secname, codeheader)
 
+        # nvdisasm for sm_90 (Hopper) omits the `.sectioninfo @"SHI_REGISTERS=N"`
+        # line that sm_8x and earlier emit. The register count still lives in the
+        # section header sh_info high byte, so inject it here when missing — otherwise
+        # reassembly's updateResourceInfo() cannot recover regnum and aborts.
+        if not any('SHI_REGISTERS' in l for l in asmlines):
+            regnum = (codeheader['sh_info'] >> 24) & 0xff
+            stream.write('  \t.sectioninfo\t@"SHI_REGISTERS=%d"\n' % regnum)
+
         for line in asmlines[1:]: # first line with .section already written
             res = m_ins.match(line)
             if res is not None:

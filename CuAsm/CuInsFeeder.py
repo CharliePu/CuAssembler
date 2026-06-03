@@ -636,7 +636,9 @@ class CuInsFeeder():
         elif smversion.getMajor() in {5,6}:
             self.__CurrTM = self.__TMs['5x6x']
             self.__SplitCodeList = self.__SplitCodeList_5x6x
-        elif smversion.getMajor() in {7,8}:
+        elif smversion.getMajor() in {7,8,9}:
+            # sm_90 (Hopper) shares the Volta-lineage 128-bit dump format + control
+            # code layout, so it reuses the 7x/8x state machine and code splitter.
             self.__CurrTM = self.__TMs['7x8x']
             self.__SplitCodeList = self.__SplitCodeList_7x8x
         else:
