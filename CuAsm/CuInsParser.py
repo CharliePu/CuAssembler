@@ -616,7 +616,11 @@ class CuInsParser():
                         # per contiguous half. offset == (high<<10) | low holds for
                         # negative offsets too under Python's arithmetic shift.
                         self.m_InsVals[-1] = addr & 0x3FF
-                        self.m_InsVals.append(addr >> 10)
+                        # high half occupies code bits[34:82) (a 48-bit field). Keep it
+                        # UNSIGNED-masked to that width so negative offsets fill exactly
+                        # bits 34..81 (sign extension) without a signed value leaking the
+                        # 2's-complement tail into adjacent code bits (82+).
+                        self.m_InsVals.append((addr >> 10) & 0xFFFFFFFFFFFF)
                     else:
                         if addr<0:
                             self.m_InsModifier.append('0_NegAddrOffset')
