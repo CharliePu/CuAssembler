@@ -30,3 +30,11 @@ Result: 14/14 byte-identical sm_90 round-trip.
 ## Known non-integral keys (unused by the 14 workload kernels)
 - BRX_R_II (indexed/jump-table branch), HFMA2_R_R_R_FI_FI (half-float dual-imm FMA).
   Would need their own field-split handling if a target kernel used them.
+
+## End-to-end H100 validation (k.cu + run.cu)
+Driver-API harness loads a cubin and runs a branchy kernel, printing a checksum.
+On violet1 (H100), original / round-tripped / stall-edited sm_90 cubins all give
+the SAME checksum (b2b455c572aeb392) — proving reassembled+edited sm_90 cubins
+load and execute correctly on real Hopper, not just byte-identical round-trip.
+Build: nvcc -arch=sm_90 -cubin k.cu -o k.cubin ; nvcc run.cu -o run -lcuda
+Run:   srun -p rg-violet --nodelist=violet1 --gres=gpu:h100:1 ./run k.cubin
